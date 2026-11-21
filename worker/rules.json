@@ -1,0 +1,5 @@
+{
+  "window_seconds": 10,
+  "limit": 5,
+  "sync_interval_seconds": 3
+}

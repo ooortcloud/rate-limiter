@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sliding Window Rate Limiter - 분산 시연 클라이언트</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        max-width: 960px;
+        margin: 28px auto;
+        padding: 0 16px;
+        background: #f8fafc;
+        color: #0f172a;
+      }
+      header {
+        margin-bottom: 18px;
+      }
+      h1 {
+        font-size: 1.4rem;
+        margin: 0 0 4px 0;
+      }
+      .subtitle {
+        color: #64748b;
+        font-size: 0.85rem;
+      }
+
+      .card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 18px;
+        margin-bottom: 14px;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+      }
+
+      /* 1순위: 핵심 제어 영역 */
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: flex-end;
+      }
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .field label {
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: #475569;
+      }
+      .field input,
+      .field select {
+        padding: 8px 10px;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        font-size: 0.9rem;
+        background: #fff;
+        color: #0f172a;
+      }
+      .field-muted input {
+        color: #64748b;
+        font-size: 0.82rem;
+        background: #f8fafc;
+      }
+      button {
+        padding: 9px 15px;
+        border: none;
+        border-radius: 7px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .btn-primary {
+        background: #2563eb;
+        color: #fff;
+      }
+      .btn-primary:hover {
+        background: #1d4ed8;
+      }
+      .btn-burst {
+        background: #dc2626;
+        color: #fff;
+      }
+      .btn-burst:hover {
+        background: #b91c1c;
+      }
+      .btn-clear {
+        background: #f1f5f9;
+        color: #64748b;
+        font-size: 0.82rem;
+      }
+      .btn-clear:hover {
+        background: #e2e8f0;
+        color: #334155;
+      }
+
+      /* 1순위: 핵심 지표 대시보드 */
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+        gap: 12px;
+      }
+      .metric-box {
+        padding: 14px 16px;
+        border-radius: 10px;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+      }
+      .metric-box.primary-focus {
+        background: #ffffff;
+        border-width: 2px;
+      }
+      .metric-label {
+        font-size: 0.74rem;
+        color: #64748b;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+      }
+      .metric-value {
+        font-size: 1.55rem;
+        font-weight: 800;
+        margin-top: 6px;
+        line-height: 1.2;
+      }
+      .metric-sub {
+        font-size: 0.78rem;
+        color: #94a3b8;
+        margin-top: 4px;
+      }
+
+      .status-200 {
+        color: #16a34a;
+      }
+      .status-429 {
+        color: #dc2626;
+      }
+      .node-1-text {
+        color: #2563eb;
+      }
+      .node-2-text {
+        color: #7c3aed;
+      }
+
+      /* 잔여 한도 게이지 바 */
+      .quota-bar-bg {
+        margin-top: 8px;
+        height: 6px;
+        width: 100%;
+        background: #e2e8f0;
+        border-radius: 999px;
+        overflow: hidden;
+      }
+      .quota-bar-fill {
+        height: 100%;
+        width: 0%;
+        background: #2563eb;
+        transition:
+          width 0.2s ease,
+          background-color 0.2s ease;
+      }
+
+      /* 로그 테이블: 핵심 컬럼 강조 + 보조 컬럼 절제 */
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th {
+        text-align: left;
+        padding: 8px 10px;
+        font-size: 0.74rem;
+        color: #64748b;
+        border-bottom: 1px solid #e2e8f0;
+        font-weight: 600;
+      }
+      td {
+        padding: 9px 10px;
+        border-bottom: 1px solid #f1f5f9;
+        vertical-align: middle;
+      }
+      .col-primary {
+        font-size: 0.9rem;
+        font-weight: 700;
+        color: #0f172a;
+      }
+      .col-secondary {
+        font-size: 0.78rem;
+        color: #94a3b8;
+      }
+
+      .badge {
+        display: inline-block;
+        padding: 3px 9px;
+        border-radius: 999px;
+        font-weight: 700;
+        font-size: 0.78rem;
+      }
+      .badge-ok {
+        background: #dcfce7;
+        color: #166534;
+      }
+      .badge-err {
+        background: #fee2e2;
+        color: #991b1b;
+      }
+      .badge-node1 {
+        background: #dbeafe;
+        color: #1d4ed8;
+        font-size: 0.76rem;
+      }
+      .badge-node2 {
+        background: #ede9fe;
+        color: #6d28d9;
+        font-size: 0.76rem;
+      }
+
+      .body-preview {
+        max-width: 240px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.73rem;
+        color: #94a3b8;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>이동 윈도 로그 처리율 제한 장치 (Sliding Window Log)</h1>
+      <div id="arch-subtitle" class="subtitle">
+        다중 미들웨어(Round-Robin) → 단일 Redis Sorted Set &amp; API Server
+      </div>
+    </header>
+
+    <div class="card">
+      <div class="controls">
+        <div class="field" style="width: 235px">
+          <label for="routingMode">요청 분산 모드</label>
+          <select id="routingMode">
+            <option value="round-robin" selected>분산 라운드로빈</option>
+            <option value="single-1">단일 노드 1 고정</option>
+            <option value="single-2">단일 노드 2 고정</option>
+          </select>
+        </div>
+        <div class="field" style="width: 165px">
+          <label for="userId">사용자 식별자 (X-User-Id)</label>
+          <input
+            id="userId"
+            type="text"
+            value="user-a"
+            placeholder="비우면 IP 기준"
+          />
+        </div>
+        <div class="field field-muted" style="flex: 1; min-width: 140px">
+          <label for="apiPath">대상 경로 (보조)</label>
+          <input id="apiPath" type="text" value="/api/hello" />
+        </div>
+        <button class="btn-primary" onclick="sendSingleRequest()">
+          요청 1회
+        </button>
+        <button class="btn-burst" onclick="sendBurstRequests(7)">
+          연속 7회 버스트
+        </button>
+        <button class="btn-clear" onclick="clearLogs()">지우기</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="metrics">
+        <div class="metric-box primary-focus" id="box-status">
+          <div class="metric-label">최근 판정 결과</div>
+          <div id="m-status" class="metric-value">-</div>
+          <div id="m-status-sub" class="metric-sub">요청 대기 중</div>
+        </div>
+
+        <div class="metric-box primary-focus">
+          <div class="metric-label">윈도 내 잔여 한도 (Remaining / Limit)</div>
+          <div id="m-quota" class="metric-value">-</div>
+          <div class="quota-bar-bg">
+            <div id="m-quota-bar" class="quota-bar-fill"></div>
+          </div>
+        </div>
+
+        <div class="metric-box primary-focus">
+          <div class="metric-label">재시도 가능 시간 (Retry-After)</div>
+          <div id="m-retry" class="metric-value">-</div>
+          <div class="metric-sub">가장 오래된 로그 만료 기준</div>
+        </div>
+
+        <div class="metric-box">
+          <div class="metric-label">처리 미들웨어 (X-Served-By)</div>
+          <div id="m-node" class="metric-value" style="font-size: 1.15rem">
+            -
+          </div>
+          <div id="m-node-sub" class="metric-sub">다음 대상 대기</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>결과</th>
+            <th>처리 노드 (X-Served-By)</th>
+            <th>잔여 / 한도</th>
+            <th>대기 (Retry-After)</th>
+            <th>식별자</th>
+            <th>시각</th>
+            <th>응답 요약</th>
+          </tr>
+        </thead>
+        <tbody id="log-body"></tbody>
+      </table>
+    </div>
+
+    <script>
+      let NODES = ["http://127.0.0.1:8000", "http://127.0.0.1:8002"];
+      let rrIndex = 0;
+      let retryTimer = null;
+
+      function extractPort(url) {
+        try {
+          return new URL(url).port || url;
+        } catch {
+          return url;
+        }
+      }
+
+      async function initDynamicConfig() {
+        try {
+          const res = await fetch("/config.json", { cache: "no-store" });
+          if (res.ok) {
+            const cfg = await res.json();
+            if (
+              Array.isArray(cfg.middlewareUrls) &&
+              cfg.middlewareUrls.length >= 2
+            ) {
+              NODES = cfg.middlewareUrls;
+            }
+          }
+        } catch {
+          // file:// 직접 열기 시 기본값 폴백 유지
+        }
+
+        const p1 = extractPort(NODES[0]);
+        const p2 = extractPort(NODES[1]);
+        const select = document.getElementById("routingMode");
+        select.options[0].textContent = `분산 라운드로빈 (:${p1} ↔ :${p2})`;
+        select.options[1].textContent = `단일 노드 1 고정 (:${p1})`;
+        select.options[2].textContent = `단일 노드 2 고정 (:${p2})`;
+        document.getElementById("arch-subtitle").textContent =
+          `다중 미들웨어(Round-Robin :${p1} ↔ :${p2}) → 단일 Redis Sorted Set & API Server`;
+      }
+
+      window.addEventListener("DOMContentLoaded", initDynamicConfig);
+
+      function pickTargetBaseUrl() {
+        const mode = document.getElementById("routingMode").value;
+        if (mode === "single-1") return NODES[0];
+        if (mode === "single-2") return NODES[1];
+        const base = NODES[rrIndex % NODES.length];
+        rrIndex += 1;
+        return base;
+      }
+
+      function startRetryCountdown(seconds) {
+        if (retryTimer) {
+          clearInterval(retryTimer);
+          retryTimer = null;
+        }
+        const el = document.getElementById("m-retry");
+        let left = Number(seconds);
+        if (!left || left <= 0) {
+          el.textContent = "0초 (가능)";
+          el.className = "metric-value status-200";
+          return;
+        }
+
+        el.textContent = `${left}초 대기`;
+        el.className = "metric-value status-429";
+
+        retryTimer = setInterval(() => {
+          left -= 1;
+          if (left <= 0) {
+            clearInterval(retryTimer);
+            retryTimer = null;
+            el.textContent = "0초 (재요청 가능)";
+            el.className = "metric-value status-200";
+          } else {
+            el.textContent = `${left}초 대기`;
+          }
+        }, 1000);
+      }
+
+      async function sendSingleRequest() {
+        const baseUrl = pickTargetBaseUrl();
+        let path =
+          document.getElementById("apiPath").value.trim() || "/api/hello";
+        if (!path.startsWith("/")) path = "/" + path;
+        const url = baseUrl + path;
+
+        const userId = document.getElementById("userId").value.trim();
+        const headers = {};
+        if (userId) headers["X-User-Id"] = userId;
+
+        const timeStr = new Date().toLocaleTimeString("ko-KR", {
+          hour12: false,
+        });
+
+        try {
+          const res = await fetch(url, { method: "GET", headers });
+          const limit = res.headers.get("X-Ratelimit-Limit") ?? "-";
+          const remaining = res.headers.get("X-Ratelimit-Remaining") ?? "-";
+          const retryAfter = res.headers.get("X-Ratelimit-Retry-After") ?? "-";
+          const servedBy = res.headers.get("X-Served-By") ?? baseUrl;
+          const data = await res.json();
+
+          const isOk = res.status === 200;
+          const isNode2 =
+            baseUrl === NODES[1] || String(servedBy).includes("middleware-2");
+          const statusEl = document.getElementById("m-status");
+          statusEl.textContent = isOk ? "200 허용" : `${res.status} 차단`;
+          statusEl.className = `metric-value ${isOk ? "status-200" : "status-429"}`;
+          document.getElementById("m-status-sub").textContent = isOk
+            ? "API 서버 정상 전달"
+            : "미들웨어 단계에서 즉시 차단";
+
+          // 잔여 한도 + 프로그레스 바 갱신
+          document.getElementById("m-quota").textContent =
+            `${remaining} / ${limit}`;
+          const pct =
+            Number(limit) > 0 ? (Number(remaining) / Number(limit)) * 100 : 0;
+          const bar = document.getElementById("m-quota-bar");
+          bar.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+          bar.style.backgroundColor =
+            Number(remaining) === 0 ? "#dc2626" : "#2563eb";
+
+          // 처리 노드 갱신
+          const nodeEl = document.getElementById("m-node");
+          nodeEl.textContent = servedBy;
+          nodeEl.className = `metric-value ${isNode2 ? "node-2-text" : "node-1-text"}`;
+          nodeEl.style.fontSize = "1.15rem";
+          document.getElementById("m-node-sub").textContent =
+            `호출 대상: ${baseUrl}`;
+
+          startRetryCountdown(retryAfter === "-" ? 0 : retryAfter);
+
+          prependLogRow({
+            status: res.status,
+            servedBy,
+            isNode2,
+            limit,
+            remaining,
+            retryAfter,
+            userId: userId || "(IP)",
+            time: timeStr,
+            body: JSON.stringify(data),
+          });
+        } catch (err) {
+          const statusEl = document.getElementById("m-status");
+          statusEl.textContent = "연결 실패";
+          statusEl.className = "metric-value status-429";
+          document.getElementById("m-status-sub").textContent =
+            `${baseUrl} 응답 없음`;
+
+          prependLogRow({
+            status: "ERR",
+            servedBy: baseUrl,
+            isNode2: baseUrl === NODES[1],
+            limit: "-",
+            remaining: "-",
+            retryAfter: "-",
+            userId: userId || "(IP)",
+            time: timeStr,
+            body: err.message,
+          });
+        }
+      }
+
+      async function sendBurstRequests(count) {
+        for (let i = 0; i < count; i++) {
+          await sendSingleRequest();
+        }
+      }
+
+      function prependLogRow(item) {
+        const tbody = document.getElementById("log-body");
+        const tr = document.createElement("tr");
+        const isOk = item.status === 200;
+
+        tr.innerHTML = `
+        <td><span class="badge ${isOk ? "badge-ok" : "badge-err"}">${item.status}</span></td>
+        <td><span class="badge ${item.isNode2 ? "badge-node2" : "badge-node1"}">${item.servedBy}</span></td>
+        <td class="col-primary">${item.remaining} / ${item.limit}</td>
+        <td class="col-primary" style="color: ${Number(item.retryAfter) > 0 ? "#dc2626" : "#64748b"};">${item.retryAfter}s</td>
+        <td class="col-secondary">${item.userId}</td>
+        <td class="col-secondary">${item.time}</td>
+        <td><div class="body-preview" title='${item.body.replace(/'/g, "&apos;")}'>${item.body}</div></td>
+      `;
+        tbody.prepend(tr);
+      }
+
+      function clearLogs() {
+        document.getElementById("log-body").innerHTML = "";
+      }
+    </script>
+  </body>
+</html>
